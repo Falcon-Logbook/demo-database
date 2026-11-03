@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the Falcon demo logbook database.
 
-Builds a complete Falcon (schema v24) SQLite file from the schema in
+Builds a complete Falcon (schema v25) SQLite file from the schema in
 schema.sql and a deterministic, hand-curated sample of flights.
 
 The logbook is demo data: one fictional pilot, five years, nine aircraft
@@ -273,6 +273,7 @@ VERSION_LEDGER = [
     (22, '0.0.15', 'Airport latitude and longitude are nullable; a missing coordinate is stored as NULL, not 0.', 1),
     (23, '0.0.15', 'Airports gained a nullable retired_at marker for rows an upstream release dropped; retired rows stay resolvable but leave picker search.', 1),
     (24, '0.0.15', 'app_settings.text_scale stores the Appearance text size step the app resolves into its MediaQuery text scaler.', 1),
+    (25, '0.0.16', 'Renamed flights.hobbs_start and hobbs_stop to difference_start and difference_stop.', 1),
 ]
 
 # The highest ledger row is the schema version this file is built at. schema.sql
@@ -1066,7 +1067,7 @@ def build(output: Path, airports_csv: Path, schema: Path) -> None:
         conn.executemany(
             "INSERT INTO flights (id, date, day_order, aircraft_id, flight_type, crew_role, crew_member_id, "
             "crew_members_name, route, route_id, flight_number, aircraft_registration, total_time, day_time, night_time, "
-            "calc_time_mode, time_start, time_stop, hobbs_start, hobbs_stop, actual_instrument, simulated_instrument, "
+            "calc_time_mode, time_start, time_stop, difference_start, difference_stop, actual_instrument, simulated_instrument, "
             "ground_instrument, approaches2d, approaches3d, approach_details, takeoffs, landings, takeoff_day, "
             "takeoff_night, landing_day, landing_night, water_takeoffs, water_landings, custom_columns, is_simulator, "
             "is_ifr, icus_day_time, icus_night_time, created_at, owner_id, updated_at) "

@@ -37,8 +37,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # What the repo promises. Keep these in step with README.md and schema.sql.
-EXPECTED_SCHEMA_VERSION = 24
-EXPECTED_AIRPORTS = 28343  # app/assets/data/airports.csv at app 0.0.15
+EXPECTED_SCHEMA_VERSION = 25
+EXPECTED_AIRPORTS = 28298  # app/assets/data/airports.csv at app 0.0.15
 EXPECTED_FLIGHTS = 486
 EXPECTED_MONTHS = 60
 EXPECTED_FIRST_MONTH = "2021-11"
@@ -185,11 +185,17 @@ def run(conn: sqlite3.Connection, check: Checker, airports_csv: Path | None) -> 
         "scheduled_arrival_utc",
         "scheduled_block_minutes",
         "schedule_source",
+        "difference_start",
+        "difference_stop",
     ):
         check.check(
             f"flights.{column} exists",
             column in column_names(conn, "flights"),
         )
+    check.check(
+        "flights has no legacy hobbs columns",
+        not {"hobbs_start", "hobbs_stop"} & set(column_names(conn, "flights")),
+    )
 
     print("airports")
     airports = query("SELECT COUNT(*) FROM airports").fetchone()[0]

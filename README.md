@@ -19,7 +19,7 @@ This repo is data, not code. The app lives at [Falcon-Logbook/app](https://githu
 | **Crew** | 30 pilots, all invented |
 | **Routes** | 134 saved routes |
 | **Hours** | about 1,885 hours, with 685 hours at night |
-| **Airports** | the full Falcon airport database, 28,343 entries |
+| **Airports** | the full Falcon airport database, 28,298 entries |
 | **Extras** | 11 expiries, 4 currencies, a filled-in dashboard |
 
 The logbook moves from club flying in a Cessna 172, through twin time in a Baron and a regional
@@ -60,20 +60,21 @@ falcon_mcp --db /path/to/falcon_demo.sqlite
 Then ask things like "how many night hours did I fly in the last 90 days?" or "what is my
 most-flown route?".
 
-The file is schema 24, and a server that caps at an older schema refuses it before the first query.
-MCP 0.5.0 accepts 18 to 20 only, so it rejects this file with "Falcon DB schema version 24 is newer
-than the supported 18-20". Use a build that accepts 24: that needs the ceiling bump tracked in
-[Falcon-Logbook/mcp#205](https://github.com/Falcon-Logbook/mcp/issues/205).
+The file is schema 25, and a server that caps at an older schema refuses it before the first query.
+The MCP server accepts 18 to 25 on `main` ([Falcon-Logbook/mcp#208](https://github.com/Falcon-Logbook/mcp/pull/208));
+a build from before that bump caps at 20 or 24 and refuses this file with "Falcon DB schema version
+25 is newer than the supported ...". Use a build that includes the bump, and check `--version` first
+if you are not sure which one you have.
 
 ### With any SQLite client
 
-The database uses the standard Falcon schema (version 24, app 0.0.15+). `schema.sql` has the full
+The database uses the standard Falcon schema (version 25, app 0.0.16+). `schema.sql` has the full
 DDL. Times are integer minutes, dates are unix seconds, and a boolean is 0 or 1.
 
 | File | What it is |
 | :--- | :--- |
 | `falcon_demo.sqlite` | The ready-to-use demo logbook |
-| `schema.sql` | Falcon schema version 24 |
+| `schema.sql` | Falcon schema version 25 |
 
 `python3 tools/check_demo_db.py` opens the file and fails when the schema version, the version
 ledger, the airport count or the counts above stop matching. Pass `--airports-csv` to compare the
