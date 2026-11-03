@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the Falcon demo logbook database.
 
-Builds a complete Falcon (schema v19) SQLite file from the schema in
+Builds a complete Falcon (schema v24) SQLite file from the schema in
 schema.sql and a deterministic, hand-curated sample of flights.
 
 The logbook is demo data: one fictional pilot, five years, nine aircraft
@@ -267,7 +267,23 @@ VERSION_LEDGER = [
     (16, '0.1.0', 'Renamed the date-based currencies feature to expiries and the metric-based user_limits feature to user_currency, including sidebar settings columns, nav keys, startup tab, sync deletions, and dashboard widget JSON.', 1),
     (17, '0.1.0', 'Added idx_flights_route index on flights(route_id).', 1),
     (18, '0.1.0', 'Converted the id columns of the 10 sync tables from BIGINT to UUID text to prevent cross-device primary key collisions.', 1),
+    (19, '0.1.0', 'Stored raw calculate-time inputs (mode, start, stop, hobbs) on flights.', 1),
+    (20, '0.0.14', 'Scheduled (roster) departure/arrival times on flights; drafts keep total_time null.', 1),
+    (21, '0.0.15', 'Converted saved_routes ids from BIGINT to UUID text and flights.route_id from BIGINT to TEXT; saved_routes now syncs with the other tables.', 1),
+    (22, '0.0.15', 'Airport latitude and longitude are nullable; a missing coordinate is stored as NULL, not 0.', 1),
+    (23, '0.0.15', 'Airports gained a nullable retired_at marker for rows an upstream release dropped; retired rows stay resolvable but leave picker search.', 1),
+    (24, '0.0.15', 'app_settings.text_scale stores the Appearance text size step the app resolves into its MediaQuery text scaler.', 1),
 ]
+
+# The highest ledger row is the schema version this file is built at. schema.sql
+# must declare the same PRAGMA user_version; build() refuses to write otherwise.
+SCHEMA_VERSION = VERSION_LEDGER[-1][0]
+
+# Matches AirportSeedService._seedFormatVersion in the app at 0.0.15. The app
+# only skips reseeding the airport table when the stored general_settings value
+# is "v<seed format>:<md5 of the bundled CSV>". Storing the same fingerprint
+# keeps the demo from reseeding its 28k airports the first time it is opened.
+SEED_FORMAT_VERSION = 4
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +355,17 @@ def to_epoch(dt: datetime) -> int:
     return int(dt.timestamp())
 
 
+def float_or_none(value: object) -> float | None:
+    """Parse an optional CSV float, treating blank or junk as missing."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
 _ID_COUNTER = itertools.count(1)
 
 
@@ -346,6 +373,21 @@ def uuid_str(prefix: str = "row") -> str:
     """Stable id, so regenerating produces the same database."""
     return str(
         uuid.uuid5(uuid.NAMESPACE_URL, f"falcon-demo/{prefix}/{next(_ID_COUNTER)}")
+    )
+
+
+def route_uuid(dep: str, arr: str, flight_number: str) -> str:
+    """Stable UUID for a saved route, keyed by the route itself.
+
+    Drawn from the route rather than the row counter so saved_routes ids, and
+    the flights.route_id values that point at them, stay the same across
+    regenerations. Schema v21 made both columns TEXT.
+    """
+    return str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"falcon-demo/route/{dep}/{arr}/{flight_number}",
+        )
     )
 
 
@@ -362,16 +404,17 @@ def airport_zone(tz_name: object) -> ZoneInfo:
 
 
 def load_airports(path: Path) -> dict[str, dict[str, object]]:
+    """Read the app's airports CSV.
+
+    Coordinates are nullable since schema v22: a blank or unparsable value is
+    stored as NULL rather than 0, which would put the airport in the Gulf of
+    Guinea. The row is kept either way, matching the app's own seeding.
+    """
     airports: dict[str, dict[str, object]] = {}
     with path.open(newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             icao = (row.get("icao") or "").strip().upper()
             if not icao:
-                continue
-            try:
-                lat = float(row.get("lat") or 0)
-                lon = float(row.get("lon") or 0)
-            except ValueError:
                 continue
             elevation = row.get("elevation") or ""
             airports[icao] = {
@@ -381,8 +424,8 @@ def load_airports(path: Path) -> dict[str, dict[str, object]]:
                 "city": row.get("city") or None,
                 "subd": row.get("subd") or None,
                 "country": row.get("country") or None,
-                "lat": lat,
-                "lon": lon,
+                "lat": float_or_none(row.get("lat")),
+                "lon": float_or_none(row.get("lon")),
                 "elevation": int(elevation) if elevation.lstrip("-").isdigit() else None,
                 "tz": row.get("tz") or None,
             }
@@ -647,6 +690,15 @@ def build(output: Path, airports_csv: Path, schema: Path) -> None:
     missing = [code for code in used_icao if code not in airports]
     if missing:
         raise SystemExit(f"airports missing from {airports_csv}: {', '.join(missing)}")
+    no_coords = [
+        code
+        for code in used_icao
+        if airports[code]["lat"] is None or airports[code]["lon"] is None
+    ]
+    if no_coords:
+        raise SystemExit(
+            f"airports without coordinates in {airports_csv}: {', '.join(no_coords)}"
+        )
 
     # Settings and master data -------------------------------------------------
     now_epoch = to_epoch(NOW)
@@ -711,7 +763,7 @@ def build(output: Path, airports_csv: Path, schema: Path) -> None:
         crew_rows.append((crew_id, name, first, last, None, 0, now_epoch, None, now_epoch))
 
     # Saved routes: one per direction actually flown.
-    used_routes: dict[tuple[str, str, str], int] = {}
+    used_routes: dict[tuple[str, str, str], str] = {}
     flight_rows: list[tuple] = []
 
     def route_key(dep: str, arr: str, fn: str | None) -> tuple[str, str, str]:
@@ -788,7 +840,9 @@ def build(output: Path, airports_csv: Path, schema: Path) -> None:
             route_id = None
             if flight.flight_number:
                 if key not in used_routes:
-                    used_routes[key] = len(used_routes) + 1
+                    used_routes[key] = route_uuid(
+                        flight.dep, flight.arr, flight.flight_number
+                    )
                 route_id = used_routes[key]
             if flight.type == "CONC":
                 if (flight.flight_number or "").startswith("AF"):
@@ -866,7 +920,12 @@ def build(output: Path, airports_csv: Path, schema: Path) -> None:
     conn = sqlite3.connect(output)
     try:
         conn.executescript(schema.read_text())
-        conn.execute("PRAGMA user_version = 19")
+        declared = conn.execute("PRAGMA user_version").fetchone()[0]
+        if declared != SCHEMA_VERSION:
+            raise SystemExit(
+                f"{schema} declares user_version {declared}, "
+                f"but the ledger ends at {SCHEMA_VERSION}"
+            )
 
         conn.executemany(
             "INSERT INTO version_ledger (version, first_app_release, schema_change, minimum_supported) VALUES (?,?,?,?)",
@@ -874,8 +933,8 @@ def build(output: Path, airports_csv: Path, schema: Path) -> None:
         )
 
         conn.executemany(
-            "INSERT INTO airports (icao, iata, name, city, subd, country, lat, lon, elevation, tz) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO airports (icao, iata, name, city, subd, country, lat, lon, elevation, tz, retired_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             [
                 (
                     a["icao"],
@@ -888,6 +947,7 @@ def build(output: Path, airports_csv: Path, schema: Path) -> None:
                     a["lon"],
                     a["elevation"],
                     a["tz"],
+                    None,
                 )
                 for a in airports.values()
             ],
@@ -914,7 +974,8 @@ def build(output: Path, airports_csv: Path, schema: Path) -> None:
             "INSERT INTO general_settings (id, startup_tab, language, airports_csv_hash, coordinates_format, "
             "dashboard_widgets_json, created_at, updated_at) VALUES (1,'dashboard','system',?,'dd',?,?,?)",
             (
-                hashlib.md5(airports_csv.read_bytes()).hexdigest(),
+                f"v{SEED_FORMAT_VERSION}:"
+                f"{hashlib.md5(airports_csv.read_bytes()).hexdigest()}",
                 json.dumps(widgets, separators=(",", ":")),
                 now_epoch,
                 now_epoch,
