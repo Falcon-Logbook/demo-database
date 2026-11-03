@@ -19,7 +19,7 @@ This repo is data, not code. The app lives at [Falcon-Logbook/app](https://githu
 | **Crew** | 30 pilots, all invented |
 | **Routes** | 134 saved routes |
 | **Hours** | about 1,885 hours, with 685 hours at night |
-| **Airports** | the full Falcon airport database, 28,291 entries |
+| **Airports** | the full Falcon airport database, 28,343 entries |
 | **Extras** | 11 expiries, 4 currencies, a filled-in dashboard |
 
 The logbook moves from club flying in a Cessna 172, through twin time in a Baron and a regional
@@ -60,15 +60,24 @@ falcon_mcp --db /path/to/falcon_demo.sqlite
 Then ask things like "how many night hours did I fly in the last 90 days?" or "what is my
 most-flown route?".
 
+The file is schema 24, and a server that caps at an older schema refuses it before the first query.
+MCP 0.5.0 accepts 18 to 20 only, so it rejects this file with "Falcon DB schema version 24 is newer
+than the supported 18-20". Use a build that accepts 24: that needs the ceiling bump tracked in
+[Falcon-Logbook/mcp#205](https://github.com/Falcon-Logbook/mcp/issues/205).
+
 ### With any SQLite client
 
-The database uses the standard Falcon schema (version 19, app 0.0.14+). `schema.sql` has the full
+The database uses the standard Falcon schema (version 24, app 0.0.15+). `schema.sql` has the full
 DDL. Times are integer minutes, dates are unix seconds, and a boolean is 0 or 1.
 
 | File | What it is |
 | :--- | :--- |
 | `falcon_demo.sqlite` | The ready-to-use demo logbook |
-| `schema.sql` | Falcon schema version 19 |
+| `schema.sql` | Falcon schema version 24 |
+
+`python3 tools/check_demo_db.py` opens the file and fails when the schema version, the version
+ledger, the airport count or the counts above stop matching. Pass `--airports-csv` to compare the
+airport table against the app's current list.
 
 ---
 
@@ -80,6 +89,8 @@ DDL. Times are integer minutes, dates are unix seconds, and a boolean is 0 or 1.
   winter sectors and on overnight eastbound flights.
 - Flight dates are stored at 10:00 UTC so the calendar date renders correctly in most time zones.
 - Route distances are great-circle distances between the two airports.
+- `saved_routes.id` is a UUID and `flights.route_id` holds that text, so join the two tables on
+  those columns (schema 21 widened `route_id` from an integer).
 - Simulator sessions are ordinary logbook entries with `is_simulator = 1`, including the type
   rating courses for the Metro, 737, A320, 747, 787, A350 and Concorde.
 
