@@ -10,6 +10,8 @@ Fails when the file drifts from the repository:
   current row carries a retired_at marker
 - the counts README.md quotes (flights, months, hours, routes, airframe,
   simulators, crew, expiries, currencies) no longer match the file
+- the flights linked to a saved route are not the expected number, or a link
+  points at a route that is no longer there
 
 Standard library only, and it reads nothing outside this repo, so it runs
 without the app checked out. Pass --airports-csv to check airport coverage
@@ -44,6 +46,7 @@ EXPECTED_LAST_MONTH = "2026-10"
 EXPECTED_TOTAL_MINUTES = 113116  # about 1,885 hours
 EXPECTED_NIGHT_MINUTES = 41104  # about 685 hours
 EXPECTED_ROUTES = 134
+EXPECTED_ROUTE_LINKS = 318  # flights whose route_id points at a saved route
 EXPECTED_AIRCRAFT = 43
 EXPECTED_SIMULATORS = 7
 EXPECTED_CREW = 30
@@ -255,7 +258,7 @@ def run(conn: sqlite3.Connection, check: Checker, airports_csv: Path | None) -> 
         "LEFT JOIN saved_routes AS r ON r.id = f.route_id "
         "WHERE f.route_id IS NOT NULL AND r.id IS NULL"
     ).fetchone()[0]
-    check.check("flights keep their route links", links > 0, f"{links} linked")
+    check.equal("flights keep their route links", links, EXPECTED_ROUTE_LINKS)
     check.equal("every route link resolves", orphan_links, 0)
 
     print("fleet, crew and extras")
